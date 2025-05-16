@@ -1,0 +1,37 @@
+﻿Project Name: Friend Recommendations (Gardening Club)
+
+
+Overview:
+* The project aims to provide friend recommendations based on shared interests and/or common friends.
+* We'll use the concept of a gardening club as our example, where members have varied interests within gardening, such as their favourite tools.
+* Users input their weightings for each interest and then receive recommendations based on their preferences.
+* Our project works in a way that any sort of interests can be used! Our creativity feature is gardening club, but it can be done for absolutely anything.
+
+
+Functionality:
+* File Reading: Reads two files: 'interests.csv' and 'friendships.csv' to extract information.
+* User Interaction: Users are prompted to choose between finding the degree of connection between two people or receiving friend recommendations
+* Interest-based Recommendations:
+   1. Allows users to specify their interests and weightings.
+   2. Generates recommendations based on shared interests.
+* Compatibility: Works with any properly formatted 'interests.csv' file.
+
+
+Concepts Used:
+1. Graph and Graph Algorithms 
+   1. Implements Breadth First Search (BFS) to find the degree of recommendation between two individuals when prompted.
+   2. Representing existing friendships as an Adjacency Matrix.
+2. Social Network
+   1.  Implements triadic, focal, and membership closures for friend recommendations.
+3. Document Search
+   1. Extracting data from the csv files for friendships and interests.
+
+
+Work Breakdown: 
+* Generating/Finding relationships and interest csv - Everyone
+* Implementing document search - Rafael and Leonard
+* Implementing BFS for graph search to find degree between people - Leonard and Dania
+* Implementing closures - Everyone
+* Improving UI - Dania
+* Writing manual - Dania and Leonard
+* Completing the write-up - Everyone
