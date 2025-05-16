@@ -1,393 +1,746 @@
 import java.io.*;
 import java.util.*;
+import java.awt.*;
+import javax.swing.*;
+import javax.swing.border.*;
+import java.util.List;  // Explicit import for List
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 public class PersonInfo {
-
-    // load two csv files needed for the code
+    // File paths
     private static final String INTERESTS_FILE = "interests.csv";
     private static final String FRIENDSHIPS_FILE = "friendships.csv";
-    // initialize hashmaps for  csv files and weights
+    private static final String LOCATIONS_FILE = "locations.csv"; // New file for geographical data
+    
+    // Data structures
     private Map<String, Map<String, String>> interests = new HashMap<>();
     private Map<String, List<String>> friendships = new HashMap<>();
     private Map<String, Integer> interestWeights = new HashMap<>();
-    private int friendScoreWeight;  // friend weighting
+    private Map<String, Location> locations = new HashMap<>(); // Geographic locations
+    private Map<String, List<String>> negativeRelations = new HashMap<>(); // People who shouldn't be recommended
+    private int friendScoreWeight;
+    
+    // GUI components
+    private JFrame mainFrame;
+    private JPanel mainPanel;
+    private JComboBox<String> personSelector;
+    private NetworkGraph networkGraph; // Custom component for visualizing the network
+    
+    // Inner class for geographic location
+    private static class Location {
+        double latitude;
+        double longitude;
+        
+        public Location(double lat, double lon) {
+            this.latitude = lat;
+            this.longitude = lon;
+        }
+        
+        // Calculate distance in kilometers using Haversine formula
+        public double distanceTo(Location other) {
+            final int R = 6371; // Earth's radius in kilometers
+            double latDistance = Math.toRadians(other.latitude - this.latitude);
+            double lonDistance = Math.toRadians(other.longitude - this.longitude);
+            double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
+                     + Math.cos(Math.toRadians(this.latitude)) * Math.cos(Math.toRadians(other.latitude))
+                     * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
+            double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+    }
+    
+    // Inner class for network visualization
+    private class NetworkGraph extends JPanel {
+        private Map<String, Point> nodePositions = new HashMap<>();
+        private String selectedPerson;
+        private Map<String, Integer> recommendationScores;
+        
+        public NetworkGraph() {
+            setPreferredSize(new Dimension(600, 400));
+            setBackground(Color.WHITE);
+            
+            // Layout nodes in a force-directed way (simplified here)
+            layoutNodes();
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    for (Map.Entry<String, Point> entry : nodePositions.entrySet()) {
+                        Point p = entry.getValue();
+                        if (distance(e.getX(), e.getY(), p.x, p.y) < 15) {
+                            String clickedPerson = entry.getKey();
+                            personSelector.setSelectedItem(clickedPerson);
+                            break;
+                        }
+                    }
+                }
+            });
+            
+        }
+        
+        private double distance(int x1, int y1, int x2, int y2) {
+            return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+        }
+        
+        public void setSelectedPerson(String person, Map<String, Integer> recScores) {
+            this.selectedPerson = person;
+            this.recommendationScores = recScores;
+            repaint();
+        }
+        
+        private void layoutNodes() {
+            // Simple circular layout - in a real implementation, use a force-directed algorithm
+            int radius = 150;
+            int centerX = 300;
+            int centerY = 200;
+            
+            int i = 0;
+            for (String person : interests.keySet()) {
+                double angle = 2 * Math.PI * i / interests.size();
+                int x = centerX + (int)(radius * Math.cos(angle));
+                int y = centerY + (int)(radius * Math.sin(angle));
+                nodePositions.put(person, new Point(x, y));
+                i++;
+            }
+        }
+        
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2d = (Graphics2D) g;
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            
+            // Draw edges (relationships)
+            g2d.setStroke(new BasicStroke(1.0f));
+            for (Map.Entry<String, List<String>> entry : friendships.entrySet()) {
+                String person = entry.getKey();
+                Point p1 = nodePositions.get(person);
+                if (p1 == null) continue;
+                
+                for (String friend : entry.getValue()) {
+                    Point p2 = nodePositions.get(friend);
+                    if (p2 == null) continue;
+                    
+                    // Draw thicker lines for strong recommendations
+                    if (selectedPerson != null && person.equals(selectedPerson) && 
+                        recommendationScores != null && recommendationScores.containsKey(friend)) {
+                        int score = recommendationScores.get(friend);
+                        float thickness = 1.0f + (score * 0.1f);
+                        g2d.setStroke(new BasicStroke(thickness));
+                        g2d.setColor(new Color(0, 100, 0)); // Dark green
+                    } else {
+                        g2d.setStroke(new BasicStroke(1.0f));
+                        g2d.setColor(Color.LIGHT_GRAY);
+                    }
+                    
+                    g2d.drawLine(p1.x, p1.y, p2.x, p2.y);
+                }
+            }
+            
+            // Draw recommendation links
+            if (selectedPerson != null && recommendationScores != null) {
+                Point p1 = nodePositions.get(selectedPerson);
+                if (p1 != null) {
+                    g2d.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 
+                                             0, new float[]{5}, 0));
+                    g2d.setColor(new Color(200, 0, 0));
+                    
+                    for (Map.Entry<String, Integer> entry : recommendationScores.entrySet()) {
+                        String recommendedPerson = entry.getKey();
+                        int score = entry.getValue();
+                        
+                        // Only draw if not already friends
+                        if (!friendships.getOrDefault(selectedPerson, Collections.emptyList()).contains(recommendedPerson)) {
+                            Point p2 = nodePositions.get(recommendedPerson);
+                            if (p2 != null) {
+                                // Make line thickness proportional to recommendation strength
+                                float thickness = 1.0f + (score * 0.05f);
+                                g2d.setStroke(new BasicStroke(thickness, BasicStroke.CAP_ROUND, 
+                                                          BasicStroke.JOIN_ROUND, 0, new float[]{5}, 0));
+                                g2d.drawLine(p1.x, p1.y, p2.x, p2.y);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Draw nodes (people)
+            for (Map.Entry<String, Point> entry : nodePositions.entrySet()) {
+                String person = entry.getKey();
+                Point p = entry.getValue();
+                
+                // Highlight selected person
+                if (selectedPerson != null && person.equals(selectedPerson)) {
+                    g2d.setColor(new Color(100, 100, 255));
+                    g2d.fillOval(p.x - 10, p.y - 10, 20, 20);
+                } 
+                // Highlight recommended people
+                else if (selectedPerson != null && recommendationScores != null && 
+                         recommendationScores.containsKey(person)) {
+                    int score = recommendationScores.get(person);
+                    // Color based on recommendation strength
+                    int green = Math.min(255, 100 + score * 10);
+                    g2d.setColor(new Color(255, green, 100));
+                    g2d.fillOval(p.x - 8, p.y - 8, 16, 16);
+                } 
+                // Regular nodes
+                else {
+                    g2d.setColor(new Color(200, 200, 200));
+                    g2d.fillOval(p.x - 6, p.y - 6, 12, 12);
+                }
+                
+                // Draw node border
+                g2d.setColor(Color.BLACK);
+                g2d.drawOval(p.x - 6, p.y - 6, 12, 12);
+                
+                // Draw name labels
+                g2d.setColor(Color.BLACK);
+                g2d.drawString(person, p.x - 10, p.y - 12);
+            }
+        }
+    }
 
     public static void main(String[] args) {
-        // catch try to intialise the files
+        SwingUtilities.invokeLater(() -> {
+            try {
+                PersonInfo app = new PersonInfo();
+                app.loadAllData();
+                app.createAndShowGUI();
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(null, 
+                    "Error loading data: " + e.getMessage(), 
+                    "Error", JOptionPane.ERROR_MESSAGE);
+                e.printStackTrace();
+            }
+        });
+    }
+    
+    private void loadAllData() throws IOException {
+        loadInterests();
+        loadFriendships();
+        
+        // Try to load optional files, but don't fail if they don't exist
+    
+        
         try {
-            PersonInfo people = new PersonInfo();
-            people.loadInterests();
-            people.loadFriendships();
-            people.collectInterestWeights();
-            people.runPrompt();
+            loadLocations();
         } catch (IOException e) {
-            System.out.println("There was an error reading the files: " + e.getMessage());
+            System.out.println("No locations file found. Using default locations.");
+            // Create sample locations for everyone
+            Random random = new Random(123); // Fixed seed for reproducibility
+            for (String person : interests.keySet()) {
+                // Generate random locations in a reasonable range
+                double lat = 40.0 + random.nextDouble() * 10.0;
+                double lon = -75.0 + random.nextDouble() * 10.0;
+                locations.put(person, new Location(lat, lon));
+            }
+            
+            // Save these locations to the file
+            saveLocations();
         }
     }
-
-    private void collectInterestWeights() throws IOException {
-        Scanner scanner = new Scanner(System.in);
-        // asking user to set the weights for each metric
-        System.out.println("Set weights (points based):");
-
-        // collecting weights for each interest
+    
+    private void saveLocations() throws IOException {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(LOCATIONS_FILE))) {
+            writer.println("Name,Latitude,Longitude");
+            for (Map.Entry<String, Location> entry : locations.entrySet()) {
+                writer.println(entry.getKey() + "," + 
+                              entry.getValue().latitude + "," + 
+                              entry.getValue().longitude);
+            }
+        }
+    }
+    
+    private void loadInterests() throws IOException {
         try (BufferedReader reader = new BufferedReader(new FileReader(INTERESTS_FILE))) {
             String[] headers = reader.readLine().split(",");
-            // read and store the header names from the interests file
-            for (int i = 1; i < headers.length; i++) {
-                int weight = 0;
-                boolean validWeight = false;
-                while (!validWeight) {
-                    System.out.print("Enter the weight for " + headers[i].trim().toLowerCase() + " (1-10): ");
-                    // many points should each interest  be worth
-                    try { // only integer check
-                        weight = scanner.nextInt();
-                        if (weight >= 1 && weight <= 10) {
-                            validWeight = true;
-                        } else {
-                            scanner.nextLine(); // clear buffer after invalid input
-                        }
-                    } catch (Exception e) {
-                        System.out.println("Not an integer. Please enter a valid integer.");
-                        scanner.nextLine(); // discard rest of line
-                    }
-                    if (weight >= 1 && weight <= 10) {
-                        validWeight = true;
-                    } else {
-                        System.out.println("Weight must be an integer between 1 and 10.");
-                    }
-                }
-                interestWeights.put(headers[i].trim(), weight);
-            }
-        }
-
-        // collecting weight for shared friends
-        int friendScoreWeight = 0;
-        boolean validFriendWeight = false;
-        while (!validFriendWeight) {
-            System.out.print("Enter the weight for each shared friend (1-10): ");
-            try {
-                friendScoreWeight = scanner.nextInt();
-                if (friendScoreWeight >= 1 && friendScoreWeight <= 10) {
-                    validFriendWeight = true;
-                } else {
-                    System.out.println("Weight must be an integer between 1 and 10.");
-                    scanner.nextLine(); // clear buffer after invalid input
-                }
-            } catch (Exception e) {
-                System.out.println("Not an integer. Please enter a valid integer.");
-                scanner.nextLine(); // consume and discard the rest of the line
-            }
-        }
-        this.friendScoreWeight = friendScoreWeight;
-    }
-
-
-    private void loadInterests() throws IOException { // getting interests
-        try (BufferedReader reader = new BufferedReader(new FileReader(INTERESTS_FILE))) {
-            String[] headers = reader.readLine().split(","); // read and store the header names from the
-            // interests file
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] data = line.split(",");
-                if (data.length != headers.length) continue; // if some sort of data is missing from a person,
-                // we skip the person
+                if (data.length != headers.length) continue;
+                
                 String name = data[0].trim();
                 Map<String, String> details = new HashMap<>();
                 for (int i = 1; i < headers.length; i++) {
-                    details.put(headers[i].trim(), data[i].trim()); // input details fo the person in thee hashmap named details
+                    details.put(headers[i].trim(), data[i].trim());
                 }
-                interests.put(name, details); // add to interests
+                interests.put(name, details);
             }
         }
     }
-
-    private void loadFriendships() throws IOException { // getting friendships
+    
+    private void loadFriendships() throws IOException {
         try (BufferedReader reader = new BufferedReader(new FileReader(FRIENDSHIPS_FILE))) {
-            String[] names = reader.readLine().split(","); // reading the header of the file
-            List<String> cleanedNames = Arrays.asList(Arrays.copyOfRange(names, 1, names.length)); // remove the first empty line
+            String[] names = reader.readLine().split(",");
+            List<String> cleanedNames = Arrays.asList(Arrays.copyOfRange(names, 1, names.length));
             String line;
-            while ((line = reader.readLine()) != null) { // awhile there are people
-                String[] data = line.split(","); // split csv
-                String person = data[0].trim(); // first element is the person's name
+            while ((line = reader.readLine()) != null) {
+                String[] data = line.split(",");
+                String person = data[0].trim();
                 List<String> friends = new ArrayList<>();
-                for (int i = 1; i < data.length; i++) { // skip person's name (start from 1)
-                    if ("1".equals(data[i].trim())) { // if equals to 1 then friend
-                        friends.add(cleanedNames.get(i - 1).trim()); // get name
+                
+                for (int i = 1; i < data.length; i++) {
+                    if ("1".equals(data[i].trim())) {
+                        friends.add(cleanedNames.get(i - 1).trim());
                     }
                 }
                 friendships.put(person, friends);
             }
         }
     }
+    
 
-
-    private void chooseRecommendationType(String person, List<String> currentFriends) {
-        Scanner scanner = new Scanner(System.in);
-        System.out.println("Choose the type of friend recommendation:");
-        System.out.println("1: Find friends based on shared friends only (Triadic Closure)");
-        System.out.println("2: Find friends based on shared interests only (Focal Closure)");
-        System.out.println("3: Find friends based on both shared friends and interests (Membership Closure)");
-        System.out.print("Enter your choice: ");
-        int choice = 0;
-        try {
-            choice = scanner.nextInt();
-        } catch (Exception e) {
-            scanner.nextLine(); // clear buffer
+    
+    private void loadLocations() throws IOException {
+        try (BufferedReader reader = new BufferedReader(new FileReader(LOCATIONS_FILE))) {
+            String line = reader.readLine(); // Skip header
+            
+            while ((line = reader.readLine()) != null) {
+                String[] data = line.split(",");
+                if (data.length < 3) continue;
+                
+                String name = data[0].trim();
+                double latitude = Double.parseDouble(data[1].trim());
+                double longitude = Double.parseDouble(data[2].trim());
+                
+                locations.put(name, new Location(latitude, longitude));
+            }
         }
-        switch (choice) { // switch case based on the choice
+    }
+    
+    
+    private void createAndShowGUI() {
+        // Set look and feel
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
+        // Create main window
+        mainFrame = new JFrame("Friend Recommendation System");
+        mainFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        mainFrame.setSize(1000, 700);
+        
+        // Create main panel with border layout
+        mainPanel = new JPanel(new BorderLayout(10, 10));
+        mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        
+        // Create top control panel
+        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        
+        // Person selector
+        JLabel selectLabel = new JLabel("Select a person: ");
+        personSelector = new JComboBox<>(interests.keySet().toArray(new String[0]));
+        personSelector.addActionListener(e -> updateSelectedPerson());
+        
+        // Buttons for different recommendation types
+        JButton friendsButton = new JButton("Shared Friends");
+        friendsButton.addActionListener(e -> showRecommendations(1));
+        
+        JButton interestsButton = new JButton("Shared Interests");
+        interestsButton.addActionListener(e -> showRecommendations(2));
+        
+        JButton combinedButton = new JButton("Combined");
+        combinedButton.addActionListener(e -> showRecommendations(3));
+        
+        JButton degreeButton = new JButton("Find Connection Degree");
+        degreeButton.addActionListener(e -> showDegreeDialog());
+        
+        controlPanel.add(selectLabel);
+        controlPanel.add(personSelector);
+        controlPanel.add(friendsButton);
+        controlPanel.add(interestsButton);
+        controlPanel.add(combinedButton);
+        controlPanel.add(degreeButton);
+        
+        // Create the network visualization
+        networkGraph = new NetworkGraph();
+        
+        // Create bottom panel for displaying recommendation details
+        JPanel detailsPanel = new JPanel();
+        detailsPanel.setLayout(new BoxLayout(detailsPanel, BoxLayout.Y_AXIS));
+        detailsPanel.setBorder(BorderFactory.createTitledBorder("Recommendation Details"));
+        detailsPanel.setPreferredSize(new Dimension(800, 200));
+        
+        // Add components to main panel
+        mainPanel.add(controlPanel, BorderLayout.NORTH);
+        mainPanel.add(networkGraph, BorderLayout.CENTER);
+        mainPanel.add(detailsPanel, BorderLayout.SOUTH);
+        
+        // Add to frame and show
+        mainFrame.add(mainPanel);
+        mainFrame.setLocationRelativeTo(null);
+        mainFrame.setVisible(true);
+        
+        // Collect weights on first run
+        collectInterestWeights();
+    }
+    
+    private void updateSelectedPerson() {
+        String selectedPerson = (String) personSelector.getSelectedItem();
+        if (selectedPerson != null) {
+            // Update the network visualization
+            Map<String, Integer> emptyScores = new HashMap<>();
+            networkGraph.setSelectedPerson(selectedPerson, emptyScores);
+            
+            // Show person's details in the details panel
+            JPanel detailsPanel = (JPanel) mainPanel.getComponent(2);
+            detailsPanel.removeAll();
+            
+            // Add person's interests
+            JPanel interestsPanel = new JPanel(new GridLayout(0, 3, 5, 5));
+            interestsPanel.setBorder(BorderFactory.createTitledBorder("Interests"));
+            
+            Map<String, String> personInterests = interests.get(selectedPerson);
+            if (personInterests != null) {
+                for (Map.Entry<String, String> entry : personInterests.entrySet()) {
+                    interestsPanel.add(new JLabel(entry.getKey() + ": " + entry.getValue()));
+                }
+            }
+            
+            // Add person's friends
+            JPanel friendsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            friendsPanel.setBorder(BorderFactory.createTitledBorder("Current Friends"));
+            
+            List<String> personFriends = friendships.getOrDefault(selectedPerson, Collections.emptyList());
+            for (String friend : personFriends) {
+                JButton friendButton = new JButton(friend);
+                friendButton.addActionListener(e -> personSelector.setSelectedItem(friend));
+                friendsPanel.add(friendButton);
+            }
+            
+            detailsPanel.add(interestsPanel);
+            detailsPanel.add(friendsPanel);
+            
+            detailsPanel.revalidate();
+            detailsPanel.repaint();
+        }
+    }
+    
+    private void collectInterestWeights() {
+        // Get headers from interests file
+        String[] interestCategories = interests.isEmpty() ? new String[0] : 
+                                     interests.values().iterator().next().keySet().toArray(new String[0]);
+        
+        // Create a dialog for collecting weights
+        JDialog weightDialog = new JDialog(mainFrame, "Set Recommendation Weights", true);
+        weightDialog.setLayout(new BorderLayout());
+        
+        JPanel weightsPanel = new JPanel(new GridLayout(0, 2, 5, 5));
+        weightsPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        
+        Map<String, JSlider> sliders = new HashMap<>();
+        
+        for (String category : interestCategories) {
+            JLabel label = new JLabel("Weight for " + category + ":");
+            JSlider slider = new JSlider(1, 10, 5);
+            slider.setMajorTickSpacing(1);
+            slider.setPaintTicks(true);
+            slider.setPaintLabels(true);
+            
+            weightsPanel.add(label);
+            weightsPanel.add(slider);
+            
+            sliders.put(category, slider);
+        }
+        
+        // Add slider for friend score weight
+        JLabel friendLabel = new JLabel("Weight for shared friends:");
+        JSlider friendSlider = new JSlider(1, 10, 5);
+        friendSlider.setMajorTickSpacing(1);
+        friendSlider.setPaintTicks(true);
+        friendSlider.setPaintLabels(true);
+        
+        weightsPanel.add(friendLabel);
+        weightsPanel.add(friendSlider);
+        
+        // Add a "geographical proximity" weight slider
+        JLabel proximityLabel = new JLabel("Weight for geographical proximity:");
+        JSlider proximitySlider = new JSlider(1, 10, 5);
+        proximitySlider.setMajorTickSpacing(1);
+        proximitySlider.setPaintTicks(true);
+        proximitySlider.setPaintLabels(true);
+        
+        weightsPanel.add(proximityLabel);
+        weightsPanel.add(proximitySlider);
+
+        // Add OK button
+        JButton okButton = new JButton("OK");
+        okButton.addActionListener(e -> {
+            // Save the weights
+            for (Map.Entry<String, JSlider> entry : sliders.entrySet()) {
+                interestWeights.put(entry.getKey(), entry.getValue().getValue());
+            }
+            
+            friendScoreWeight = friendSlider.getValue();
+            
+            // Close dialog
+            weightDialog.dispose();
+        });
+        
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttonPanel.add(okButton);
+        
+        weightDialog.add(weightsPanel, BorderLayout.CENTER);
+        weightDialog.add(buttonPanel, BorderLayout.SOUTH);
+        weightDialog.pack();
+        weightDialog.setLocationRelativeTo(mainFrame);
+        weightDialog.setVisible(true);
+    }
+    
+    private void showDegreeDialog() {
+        JDialog degreeDialog = new JDialog(mainFrame, "Find Connection Degree", true);
+        degreeDialog.setLayout(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        
+        // Person 1 selector
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        JLabel person1Label = new JLabel("First person:");
+        degreeDialog.add(person1Label, gbc);
+        
+        gbc.gridx = 1;
+        JComboBox<String> person1Selector = new JComboBox<>(interests.keySet().toArray(new String[0]));
+        degreeDialog.add(person1Selector, gbc);
+        
+        // Person 2 selector
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        JLabel person2Label = new JLabel("Second person:");
+        degreeDialog.add(person2Label, gbc);
+        
+        gbc.gridx = 1;
+        JComboBox<String> person2Selector = new JComboBox<>(interests.keySet().toArray(new String[0]));
+        degreeDialog.add(person2Selector, gbc);
+        
+        // Result label
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 2;
+        JLabel resultLabel = new JLabel(" ");
+        degreeDialog.add(resultLabel, gbc);
+        
+        // Find button
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.gridwidth = 2;
+        JButton findButton = new JButton("Find Degree");
+        findButton.addActionListener(e -> {
+            String person1 = (String) person1Selector.getSelectedItem();
+            String person2 = (String) person2Selector.getSelectedItem();
+            
+            if (person1 != null && person2 != null) {
+                int degree = findDegreeOfSeparation(person1, person2);
+                if (degree == -1) {
+                    resultLabel.setText("There is no connection between " + person1 + " and " + person2);
+                } else {
+                    resultLabel.setText("The degree of separation is: " + degree);
+                    
+                    // Visualize the shortest path
+                    List<String> path = findShortestPath(person1, person2);
+                    JPanel pathPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+                    
+                    for (int i = 0; i < path.size(); i++) {
+                        pathPanel.add(new JLabel(path.get(i)));
+                        
+                        if (i < path.size() - 1) {
+                            pathPanel.add(new JLabel(" → "));
+                        }
+                    }
+                    
+                    gbc.gridx = 0;
+                    gbc.gridy = 4;
+                    gbc.gridwidth = 2;
+                    degreeDialog.add(pathPanel, gbc);
+                    degreeDialog.pack();
+                }
+            }
+        });
+        degreeDialog.add(findButton, gbc);
+        
+        // Close button
+        gbc.gridx = 0;
+        gbc.gridy = 5;
+        JButton closeButton = new JButton("Close");
+        closeButton.addActionListener(e -> degreeDialog.dispose());
+        degreeDialog.add(closeButton, gbc);
+        
+        degreeDialog.pack();
+        degreeDialog.setLocationRelativeTo(mainFrame);
+        degreeDialog.setVisible(true);
+    }
+    
+    private int findDegreeOfSeparation(String start, String end) {
+        Queue<String> queue = new LinkedList<>();
+        Set<String> visited = new HashSet<>();
+        Map<String, Integer> distance = new HashMap<>();
+        
+        queue.add(start);
+        visited.add(start);
+        distance.put(start, 0);
+        
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            
+            if (current.equals(end)) {
+                return distance.get(current);
+            }
+            
+            for (String neighbor : friendships.getOrDefault(current, Collections.emptyList())) {
+                if (!visited.contains(neighbor)) {
+                    visited.add(neighbor);
+                    queue.add(neighbor);
+                    distance.put(neighbor, distance.get(current) + 1);
+                }
+            }
+        }
+        
+        return -1;
+    }
+    
+    private List<String> findShortestPath(String start, String end) {
+        Queue<String> queue = new LinkedList<>();
+        Set<String> visited = new HashSet<>();
+        Map<String, String> predecessor = new HashMap<>();
+        
+        queue.add(start);
+        visited.add(start);
+        
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            
+            if (current.equals(end)) {
+                // Reconstruct path
+                List<String> path = new ArrayList<>();
+                String at = end;
+                while (at != null) {
+                    path.add(0, at);
+                    at = predecessor.get(at);
+                }
+                return path;
+            }
+            
+            for (String neighbor : friendships.getOrDefault(current, Collections.emptyList())) {
+                if (!visited.contains(neighbor)) {
+                    visited.add(neighbor);
+                    queue.add(neighbor);
+                    predecessor.put(neighbor, current);
+                }
+            }
+        }
+        
+        return Collections.emptyList();
+    }
+    
+    private void showRecommendations(int type) {
+        String selectedPerson = (String) personSelector.getSelectedItem();
+        if (selectedPerson == null) {
+            JOptionPane.showMessageDialog(mainFrame, 
+                "Please select a person first.", 
+                "No Person Selected", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        
+        List<String> currentFriends = friendships.getOrDefault(selectedPerson, Collections.emptyList());
+        Map<String, Integer> scores = new HashMap<>();
+        
+        switch (type) {
             case 1:
-                recommendBasedOnFriends(person, currentFriends);
+                // Shared friends
+                recommendBasedOnFriends(selectedPerson, currentFriends, scores);
                 break;
             case 2:
-                recommendBasedOnInterests(person, currentFriends);
+                // Shared interests
+                recommendBasedOnInterests(selectedPerson, currentFriends, scores);
                 break;
             case 3:
-                recommendFriends(person, currentFriends);
+                // Combined recommendation
+                recommendCombined(selectedPerson, currentFriends, scores);
                 break;
             default:
-                System.out.println("Invalid, try again.");
-                chooseRecommendationType(person, currentFriends); // asks user again
                 break;
         }
+
+        // Sort and update visualization
+        Map<String, Integer> sortedScores = new TreeMap<>(
+            (a, b) -> scores.get(b) - scores.get(a)
+        );
+        sortedScores.putAll(scores);
+
+        networkGraph.setSelectedPerson(selectedPerson, sortedScores);
+        updateRecommendationDetails(sortedScores);
     }
 
-    private void handleFriendRecommendations(Scanner scanner) {
-        System.out.print("Enter the name of the person you want recommendations for: ");
-        String inputName = scanner.nextLine().trim().toLowerCase();
-        String name =  inputName.substring(0, 1).toUpperCase() + inputName.substring(1); // Capitalize the first letter
-        if (!interests.containsKey(name)) { // if the name is not in the csv
-            System.out.println("No data available for " + name); // tells user can't be found
-            return;
-        }
-        System.out.println("Interests of " + name + ": "); // else tells the user the interests
-        System.out.println(interests.get(name));
-        if (friendships.containsKey(name)) { // if the user has friends
-            List<String> currentFriends = friendships.get(name); // gets the friends in a list
-            System.out.println("Friends of " + name + ": ");
-            System.out.println(currentFriends); // prints the friends
-            chooseRecommendationType(name, currentFriends); // asks the user what recommendation they want
-        } else {
-            System.out.println(name + " has no recorded friends."); // tells the user they have no friends
-        }
-    }
-
-    private void handleDegreeOfSeparation(Scanner scanner) {  // find the degree between 2 people (friendship degree)
-        System.out.print("Enter the name of the first person: "); // first person
-        String name1 = scanner.nextLine().trim().toLowerCase();
-        String person1 =  name1.substring(0, 1).toUpperCase() + name1.substring(1); // Capitalize the first letter
-        System.out.print("Enter the name of the second person: "); // second person
-        String name2 = scanner.nextLine().trim().toLowerCase();
-        String person2 =  name2.substring(0, 1).toUpperCase() + name2.substring(1); // Capitalize the first letter
-
-
-        if (!friendships.containsKey(person1) || !friendships.containsKey(person2)) { // if a name isn't recorded
-            System.out.println("Error: a name was not found."); // tells user there is a name
-            return;
-        }
-
-        int degree = findDegreeOfSeparation(person1, person2); // finds the degree between the 2 people
-        if (degree == -1) { // if non-existent (-1)
-            System.out.println("There is no connection between " + person1 + " and " + person2); // no degree
-        } else {
-            System.out.println("The degree of separation between " + person1 + " and " + person2 + " is: " + degree); // prints degree
-        }
-    }
-
-    private void runPrompt() {
-        Scanner scanner = new Scanner(System.in);
-        while (true) { // asks user what option they want
-            System.out.println("What would you like to do?");
-            System.out.println("1: Find friend recommendations");
-            System.out.println("2: Find the degree of separation between two people");
-            System.out.print("Enter your choice (or type 'exit' to exit): ");
-            String choice = scanner.nextLine().trim();
-
-            if ("exit".equalsIgnoreCase(choice)) {
-                break;
-            } else if ("1".equals(choice)) {
-                handleFriendRecommendations(scanner);  // function to ask which recommendation
-            } else if ("2".equals(choice)) {
-                handleDegreeOfSeparation(scanner); // function to find the degree
-            } else {
-                System.out.println("Invalid choice, try again.");
-            }
-        }
-        scanner.close();
-    }
-
-    private int findDegreeOfSeparation(String start, String end) { // bfs implementation
-        Queue<String> queue = new LinkedList<>(); // queue
-        Set<String> visited = new HashSet<>(); // visited
-        Map<String, Integer> distance = new HashMap<>(); // distance between
-
-        queue.add(start); // before we add to the queue the first person
-        visited.add(start); // add the person as visited
-        distance.put(start, 0); // keep track of the distance
-
-        while (!queue.isEmpty()) { // if the queue is not empty
-            String current = queue.poll(); // take the top and delete the element from the queue
-            if (current.equals(end)) { // if the current element is the friend we are searching for
-                return distance.get(current); // found, so return distance
-            }
-
-            for (String neighbour : friendships.get(current)) { // for each neighbour (friend)
-                if (!visited.contains(neighbour)) { // we see if the neighbour was visited
-                    visited.add(neighbour); // if it wasn't, add to visited set
-                    queue.add(neighbour);  // add the neighbour to the queue
-                    distance.put(neighbour, distance.get(current) + 1); // increment the distance to this b person to 1
+    private void recommendBasedOnFriends(String selectedPerson, List<String> currentFriends, Map<String, Integer> scores) {
+        for (String friend : currentFriends) {
+            for (String friendOfFriend : friendships.getOrDefault(friend, Collections.emptyList())) {
+                if (!friendOfFriend.equals(selectedPerson) && !currentFriends.contains(friendOfFriend)) {
+                    scores.put(friendOfFriend, scores.getOrDefault(friendOfFriend, 0) + friendScoreWeight);
                 }
             }
         }
-
-        return -1;  // return -1 if no path found
     }
 
-    private void recommendBasedOnFriends(String person, List<String> currentFriends) {
-        Map<String, List<String>> commonFriends = new HashMap<>(); // hashmap for common friends
+    private void recommendBasedOnInterests(String selectedPerson, List<String> currentFriends, Map<String, Integer> scores) {
+        Map<String, String> personInterests = interests.get(selectedPerson);
 
-        for (String friend : currentFriends) { // for each friend
-            List<String> friendsOfFriend = friendships.get(friend);
-            for (String foaf : friendsOfFriend) { // friends of friends
-                if (!currentFriends.contains(foaf) && !foaf.equals(person)) { // if contains friends of friends
-                    commonFriends.computeIfAbsent(foaf, k -> new ArrayList<>()).add(friend); // map function
+        for (String other : interests.keySet()) {
+            if (other.equals(selectedPerson) || currentFriends.contains(other)) continue;
+
+            int totalScore = 0;
+            Map<String, String> otherInterests = interests.get(other);
+
+            for (String category : personInterests.keySet()) {
+                if (personInterests.get(category).equalsIgnoreCase(otherInterests.get(category))) {
+                    totalScore += interestWeights.getOrDefault(category, 1);
                 }
             }
-        }
-
-        List<Map.Entry<String, List<String>>> sortedFriends = new ArrayList<>(commonFriends.entrySet());
-        sortedFriends.sort((a, b) -> b.getValue().size() - a.getValue().size()); // sort by the friends size
-
-        // Display the recommended friends
-        System.out.println("Top recommended friends for " + person + ":");
-        int count = 1; // Start numbering from 1
-        for (Map.Entry<String, List<String>> entry : sortedFriends) {
-            if (count > 5) break; // Exit loop if 5 recommendations are printed
-            String friendName = entry.getKey();
-            List<String> commonFriendsList = entry.getValue();
-            String commonFriendsStr = String.join(", ", commonFriendsList);
-            System.out.println(count + ". " + friendName);
-            System.out.println("   Common Friends: " + commonFriendsStr);
-            System.out.println("------------------------------------------");
-            count++; // Increment count for the next friend
-        }
-
-        // If no recommendations are found
-        if (count == 1) {
-            System.out.println("No new friend recommendations based on shared friends for " + person);
+            scores.put(other, totalScore);
         }
     }
 
-    private void recommendBasedOnInterests(String person, List<String> currentFriends) { // recommendations based on the interests
-        Map<String, Integer> scores = new HashMap<>(); // hashmap to keep track of score
-        Map<String, Map<String, String>> commonInterests = new HashMap<>(); // hashmap to keep track of common interests
+    private void recommendCombined(String selectedPerson, List<String> currentFriends, Map<String, Integer> scores) {
+        recommendBasedOnFriends(selectedPerson, currentFriends, scores);
+        recommendBasedOnInterests(selectedPerson, currentFriends, scores);
 
-        for (String potentialFriend : friendships.keySet()) { // potential friends
-            if (!currentFriends.contains(potentialFriend) && !potentialFriend.equals(person)) {
-                int score = 0;
-                Map<String, String> tempCommonInterests = new HashMap<>();
-                for (Map.Entry<String, String> entry : interests.get(person).entrySet()) { // collects the interest of each eprson
-                    String interest = entry.getKey();
-                    String value = entry.getValue();
-                    String friendInterestValue = interests.get(potentialFriend).get(interest);
-                    if (friendInterestValue != null && value.equals(friendInterestValue)) {
-                        tempCommonInterests.put(interest, value);
-                        score += interestWeights.getOrDefault(interest, 0); // add to the score the interestWeights (if none, then just put 0)
-                    }
-                }
-                if (score > 0) {
-                    scores.put(potentialFriend, score); // adds the score to the hashmap alongside the potential friend
-                    commonInterests.put(potentialFriend, tempCommonInterests);
-                }
+        // Optionally include proximity and recency
+        Location selectedLocation = locations.get(selectedPerson);
+
+        for (String other : interests.keySet()) {
+            if (other.equals(selectedPerson) || currentFriends.contains(other)) continue;
+
+            int currentScore = scores.getOrDefault(other, 0);
+
+            // Proximity factor
+            Location otherLocation = locations.get(other);
+            if (selectedLocation != null && otherLocation != null) {
+                double distance = selectedLocation.distanceTo(otherLocation);
+                int proximityScore = Math.max(0, 10 - (int)(distance / 10));
+                currentScore += proximityScore;
             }
-        }
 
-        List<Map.Entry<String, Integer>> sortedFriends = new ArrayList<>(scores.entrySet());
-        sortedFriends.sort((a, b) -> b.getValue().compareTo(a.getValue()));
 
-        System.out.println("Recommended friends for " + person + " based on shared interests:"); // display recommendations 
-        int count = 1; // counter to count the recommendations
-        for (Map.Entry<String, Integer> entry : sortedFriends) {
-            if (count > 5) break; // display only top 5 recommendations
-            String friendName = entry.getKey(); // get name of friend
-            int score = entry.getValue(); // get the score
-            Map<String, String> interestsMap = commonInterests.get(friendName);
-            System.out.println(count + ". " + friendName);
-            System.out.println("   Score: " + score);
-            System.out.println("   Common Interests:");
-            for (Map.Entry<String, String> interestEntry : interestsMap.entrySet()) {
-                System.out.println("      - " + interestEntry.getKey() + ": " + interestEntry.getValue());
-            }
-            System.out.println("------------------------------------------");
-            count++;
-        }
-
-        // if no recommendations are found
-        if (count == 1) {
-            System.out.println("No new friend recommendations based on interests for " + person);
+            scores.put(other, currentScore);
         }
     }
-    private void recommendFriends(String person, List<String> currentFriends) {
-        Map<String, Integer> scores = new HashMap<>();
-        Map<String, List<String>> commonFriends = new HashMap<>();
-        Map<String, Map<String, String>> commonInterests = new HashMap<>();
 
-        for (String friend : currentFriends) { // for each of the friends
-            List<String> friendsOfFriend = friendships.get(friend); // get the list of friends
-            for (String foaf : friendsOfFriend) { // for each friend of friend
-                if (!currentFriends.contains(foaf) && !foaf.equals(person)) { // if the current friend doesnt contain the friend of a friend, and the friend of the friend isn't current person
-                    commonFriends.computeIfAbsent(foaf, k -> new ArrayList<>()).add(friend); // map the friend of the new friend
-                    scores.put(foaf, scores.getOrDefault(foaf, 0) + friendScoreWeight); // add to the hashmap scores the friend of the friend alongside their score
-                }
-            }
+    private void updateRecommendationDetails(Map<String, Integer> sortedScores) {
+        JPanel detailsPanel = (JPanel) mainPanel.getComponent(2);
+        detailsPanel.removeAll();
+
+        JPanel recommendationsPanel = new JPanel(new GridLayout(0, 1));
+        recommendationsPanel.setBorder(BorderFactory.createTitledBorder("Top Recommendations"));
+
+        int count = 0;
+        for (Map.Entry<String, Integer> entry : sortedScores.entrySet()) {
+            if (count++ >= 10) break;
+            recommendationsPanel.add(new JLabel(entry.getKey() + " (Score: " + entry.getValue() + ")"));
         }
 
-        for (String potentialFriend : friendships.keySet()) { // for each potential friend
-            if (!currentFriends.contains(potentialFriend) && !potentialFriend.equals(person)) { // if the person doesn't have the potential friend as a friend and if the person isn't the potential friend
-                int interestScore = 0; // set score to 0 for interests
-                Map<String, String> tempCommonInterests = new HashMap<>(); // hashmap for the common interests
-                for (Map.Entry<String, String> entry : interests.get(person).entrySet()) { 
-                    String interest = entry.getKey(); // get interests and score
-                    String value = entry.getValue();
-                    String friendInterestValue = interests.get(potentialFriend).get(interest); // get the interests of the potential friend
-                    if (friendInterestValue != null && value.equals(friendInterestValue)) { // check friend interests has a value
-                        tempCommonInterests.put(interest, value); // add the interests and the value
-                        interestScore += interestWeights.getOrDefault(interest, 0); // adds to the score
-                    }
-                }
-                if (interestScore > 0) { // if an interest score above 0
-                    scores.put(potentialFriend, scores.getOrDefault(potentialFriend, 0) + interestScore); // add the potential friend alongside their score to the map
-                    commonInterests.put(potentialFriend, tempCommonInterests); // add the common interests
-                }
-            }
-        }
-
-        List<Map.Entry<String, Integer>> sortedFriends = new ArrayList<>(scores.entrySet()); //create a list from the set of entries in the scores map
-        sortedFriends.sort((a, b) -> b.getValue().compareTo(a.getValue())); // sort the list in descending order based on the scores
-
-        // display recommendations
-        System.out.println("Combined friend recommendations for " + person + ":");
-        int count = 1;
-        for (Map.Entry<String, Integer> entry : sortedFriends) {
-            if (count > 5) break; // display only top 5 recommendations
-            String friendName = entry.getKey();
-            int totalScore = entry.getValue();
-            List<String> friendCommonFriends = commonFriends.getOrDefault(friendName, Collections.emptyList()); // get the common friends
-            Map<String, String> friendCommonInterests = commonInterests.getOrDefault(friendName, Collections.emptyMap());
-
-
-            // printing out each recommendation
-            System.out.println(count + ". " + friendName);
-            System.out.println("   Total Score: " + totalScore);
-            System.out.println("   Mutual Friends: " + friendCommonFriends);
-            System.out.println("   Shared Interests: " + friendCommonInterests);
-            System.out.println("------------------------------------------");
-            count++;
-        }
-
-        // if no recommendations are found
-        if (count == 1) {
-            System.out.println("No new friend recommendations based on combined criteria for " + person);
-        }
+        detailsPanel.add(recommendationsPanel);
+        detailsPanel.revalidate();
+        detailsPanel.repaint();
     }
 }
