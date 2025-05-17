@@ -1,0 +1,8 @@
+Name,Alice,Bob,Charlie,Daisy,Eve,Frank,Grace
+Alice,0,1,0,0,1,0,0
+Bob,1,0,0,0,0,0,0
+Charlie,0,0,0,1,0,0,0
+Daisy,0,0,1,0,0,0,0
+Eve,1,0,0,0,0,0,0
+Frank,0,0,0,0,0,0,0
+Grace,0,0,0,0,0,0,0
