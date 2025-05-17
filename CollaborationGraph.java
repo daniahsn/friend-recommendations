@@ -17,8 +17,7 @@ public class CollaborationGraph extends JPanel {
         this.collaborations = collaborations;
         setPreferredSize(new Dimension(500, 500));
         setBackground(Theme.PANEL_COLOR);
-        layoutNodes();
-
+        
         addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -31,6 +30,15 @@ public class CollaborationGraph extends JPanel {
                         break;
                     }
                 }
+            }
+        });
+        
+        // Add component listener to handle resizing
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                layoutNodes(); // Recalculate node positions when the panel resizes
+                repaint();
             }
         });
     }
@@ -46,11 +54,12 @@ public class CollaborationGraph extends JPanel {
 
     private void layoutNodes() {
         int size = students.size();
-        int radius = 150;
-        int panelWidth = getPreferredSize().width;
-        int panelHeight = getPreferredSize().height;
-        int centerX = panelWidth / 2;
-        int centerY = panelHeight / 2;
+        // Calculate radius based on the smaller dimension of the panel
+        int radius = Math.min(getWidth(), getHeight()) / 2 - 50;
+        if (radius < 50) radius = 50; // Minimum radius
+        
+        int centerX = getWidth() / 2;
+        int centerY = getHeight() / 2;
 
         int i = 0;
         for (String name : students.keySet()) {
@@ -97,7 +106,11 @@ public class CollaborationGraph extends JPanel {
 
             g2.setColor(Theme.TEXT_COLOR);
             g2.setFont(Theme.NORMAL_FONT);
-            g2.drawString(name, p.x - 15, p.y - 15);
+            
+            // Center the name text above the node
+            FontMetrics fm = g2.getFontMetrics();
+            int textWidth = fm.stringWidth(name);
+            g2.drawString(name, p.x - textWidth/2, p.y - 15);
         }
     }
 }

@@ -165,7 +165,7 @@ public class StudentViewGUI {
         outputScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
     
         graph = new CollaborationGraph(students, engine.getCollaborations());
-        graph.setPreferredSize(new Dimension(500, 500));
+        graph.setPreferredSize(new Dimension(400, 500));
         graph.setBackground(Theme.PANEL_COLOR);
         graph.setNodeClickListener(name -> {
             studentSelector.setSelectedItem(name);
@@ -174,10 +174,8 @@ public class StudentViewGUI {
     
         JSplitPane mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
                 new JScrollPane(graph), outputScrollPane);
-        mainSplitPane.setDividerLocation(600);
+        mainSplitPane.setDividerLocation(550);
         mainSplitPane.setBorder(BorderFactory.createLineBorder(Theme.BORDER_COLOR));
-        outputScrollPane.setMinimumSize(new Dimension(340, 300));
-        outputScrollPane.setPreferredSize(new Dimension(400, 500));
         
     
       
@@ -374,11 +372,14 @@ panel.setBorder(BorderFactory.createCompoundBorder(border, BorderFactory.createE
     
             StringBuilder html = new StringBuilder();
             html.append("<html><head><style>")
-                .append("body { font-family: 'Segoe UI', sans-serif; color: #323741; padding: 10px; }")
-                .append("h2 { color: #3A3F58; font-size: 20px; }")
-                .append(".rec { margin-bottom: 15px; padding: 10px; background-color: #F5F7FA; border: 1px solid #E1E4EB; border-radius: 6px; }")
-                .append(".score { color: #6078E6; font-weight: bold; }")
-                .append(".info { margin-top: 4px; font-size: 13px; }")
+                .append("body { font-family: 'Segoe UI', sans-serif; color: #323741; padding: 15px; }")
+                .append("h2 { color: #3A3F58; font-size: 20px; margin-bottom: 15px; }")
+                .append(".rec { margin-bottom: 20px; padding: 12px 15px; background-color: #F5F7FA; border: 1px solid #E1E4EB; border-radius: 6px; }")
+                .append(".name { font-weight: bold; font-size: 15px; margin-bottom: 6px; display: block; }")
+                .append(".info { font-size: 13px; line-height: 1.5; margin-bottom: 4px; }")
+                .append(".score { color: #6078E6; font-weight: bold; font-size: 13px; }")
+                .append(".skill-bar { height: 10px; background-color: #e1e4eb; border-radius: 5px; overflow: hidden; }")
+                .append(".skill-fill { height: 10px; background-color: #6078E6; border-radius: 5px; }")
                 .append("</style></head><body>");
     
             html.append("<h2>Top Recommendations for ").append(selectedName).append(":</h2>");
@@ -386,46 +387,83 @@ panel.setBorder(BorderFactory.createCompoundBorder(border, BorderFactory.createE
             for (String name : recommendations) {
                 Student s = students.get(name);
                 int score = engine.computeScore(selectedName, name, majorWeight, skillWeight, collabPenalty);
+                Map<String, Integer> skills = s.getSkills();
     
                 html.append("<div class='rec'>")
-                    .append("<b>").append(name).append("</b><br>")
-                    .append("<div class='info'>")
-                    .append("Major: ").append(s.getMajor()).append("<br>")
-                    .append("Skills: ").append(s.getSkills().toString()).append("<br>")
-                    .append("Similarity Score: <span class='score'>").append(score).append("</span>")
-                    .append("</div></div>");
+                    .append("<span class='name'>").append(name).append("</span>")
+                    .append("<div class='info'><b>Major:</b> ").append(s.getMajor()).append("</div>")
+                    .append("<div class='info'><b>Skills:</b></div>");
+    
+                for (String skill : skills.keySet()) {
+                    int level = skills.get(skill);
+                    int percent = level * 20;
+    
+                    String icon = switch (skill.toLowerCase()) {
+                        case "design" -> "🎨";
+                        case "backend" -> "🛠️";
+                        case "frontend" -> "💻";
+                        default -> "🔧";
+                    };
+    
+                    html.append("<div class='info'>")
+                        .append(icon).append(" <b>").append(skill).append(":</b>")
+                        .append("<div class='skill-bar'><div class='skill-fill' style='width: ")
+                        .append(percent).append("%;'></div></div>")
+                        .append("</div>");
+                }
+    
+                html.append("<div class='score'>Similarity Score: ").append(score).append("</div>")
+                    .append("</div>");
             }
     
             html.append("</body></html>");
             outputArea.setText(html.toString());
-            outputArea.setCaretPosition(0); // Scroll to top
+            outputArea.setCaretPosition(0);
         }
     }
 
     private void displayStudentInfo(String name) {
         Student s = students.get(name);
+        Map<String, Integer> skills = s.getSkills();
     
         StringBuilder html = new StringBuilder();
         html.append("<html><head><style>")
             .append("body { font-family: 'Segoe UI', sans-serif; color: #323741; padding: 10px; }")
             .append(".card { background-color: #F5F7FA; padding: 15px; border-radius: 6px; border: 1px solid #E1E4EB; }")
-            .append(".title { font-size: 20px; font-weight: bold; color: #3A3F58; margin-bottom: 10px; }")
-            .append(".info { font-size: 14px; line-height: 1.6; }")
+            .append(".title { font-size: 18px; font-weight: bold; color: #3A3F58; margin-bottom: 10px; }")
+            .append(".info { font-size: 14px; line-height: 1.5; margin-bottom: 8px; }")
+            .append(".skill-bar { height: 10px; background-color: #e1e4eb; border-radius: 5px; overflow: hidden; }")
+            .append(".skill-fill { height: 10px; background-color: #6078E6; border-radius: 5px; }")
             .append("</style></head><body>");
     
         html.append("<div class='card'>")
             .append("<div class='title'>").append(name).append("</div>")
-            .append("<div class='info'>")
-            .append("<b>Major:</b> ").append(s.getMajor()).append("<br>")
-            .append("<b>Skills:</b> ").append(s.getSkills().toString())
-            .append("</div></div>");
+            .append("<div class='info'><b>Major:</b> ").append(s.getMajor()).append("</div>")
+            .append("<div class='info'><b>Skills:</b></div>");
     
-        html.append("</body></html>");
+            for (String skill : skills.keySet()) {
+                int level = skills.get(skill);
+                int percent = level * 20;
+            
+                String icon = switch (skill.toLowerCase()) {
+                    case "design" -> "🎨";
+                    case "backend" -> "🛠️";
+                    case "frontend" -> "💻";
+                    default -> "🔧";
+                };
+            
+                html.append("<div class='info'>")
+                    .append("<div>").append(icon).append(" <b>").append(skill).append(":</b></div>")
+                    .append("<div class='skill-bar'><div class='skill-fill' style='width: ")
+                    .append(percent).append("%;'></div></div>")
+                    .append("</div>");
+            }
+    
+        html.append("</div></body></html>");
     
         outputArea.setText(html.toString());
         outputArea.setCaretPosition(0); // Scroll to top
     }
-
     private void showDegreeDialog() {
         JDialog degreeDialog = new JDialog(frame, "Find Connection Degree", true);
         degreeDialog.setLayout(new GridBagLayout());
@@ -468,7 +506,7 @@ panel.setBorder(BorderFactory.createCompoundBorder(border, BorderFactory.createE
             if (person1 != null && person2 != null) {
                 int degree = findDegreeOfSeparation(person1, person2);
                 if (degree == -1) {
-                    resultLabel.setText("There is no connection between " + person1 + " and " + person2);
+                    resultLabel.setText("No connection between " + person1 + " and " + person2);
                 } else {
                     resultLabel.setText("The degree of separation is: " + degree);
                 }
@@ -482,6 +520,7 @@ panel.setBorder(BorderFactory.createCompoundBorder(border, BorderFactory.createE
         closeButton.addActionListener(e -> degreeDialog.dispose());
         degreeDialog.add(closeButton, gbc);
 
+        degreeDialog.setPreferredSize(new Dimension(350, 220));
         degreeDialog.pack();
         degreeDialog.setLocationRelativeTo(frame);
         degreeDialog.setVisible(true);
