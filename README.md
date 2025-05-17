@@ -45,12 +45,22 @@ A smart Java-based tool to help students find ideal project partners based on **
 
 ---
 
+## 🧑‍🏫 Use Cases
+
+- **Instructors**: Assign groups while balancing collaboration history and skill diversity
+- **Students**: Find ideal partners based on interests and availability
+- **Clubs/Hackathons**: Quickly form teams with complementary strengths
+- **Course Staff**: Identify isolated students via graph insights
+
 ## 💡 Future Ideas
 
-- Auto-import from live Google Sheets  
-- Full team formation with export to CSV  
-- Instructor dashboard for manual overrides  
-- Web version with React + Spring Boot
+| Feature | Description |
+|--------|-------------|
+| 🧾 Google Sheets Sync | Auto-fetch live responses from Google Forms |
+| 👥 Group Builder | Let students or instructors form full teams |
+| 🗂️ Instructor View | Manage ungrouped students, edit groups |
+| 🌐 Web Version | Rebuild in React + Spring Boot for deployment |
+| 🧠 AI Matching | Use clustering or ML to suggest optimal teamings |
 
 ---
 
